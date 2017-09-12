@@ -72,7 +72,7 @@ SYSCTL_PROC(_machdep, OID_AUTO, adjkerntz, CTLTYPE_INT | CTLFLAG_RW |
     "Local offset from UTC in seconds");
 
 static int ct_debug;
-SYSCTL_INT(_debug, OID_AUTO, clocktime, CTLFLAG_RW,
+SYSCTL_INT(_debug, OID_AUTO, clocktime, CTLFLAG_RWTUN,
     &ct_debug, 0, "Enable printing of clocktime debugging");
 
 static int wall_cmos_clock;
@@ -142,18 +142,27 @@ clock_ct_to_ts(struct clocktime *ct, struct timespec *ts)
 {
 	int i, year, days;
 
-	year = ct->year;
-
 	if (ct_debug) {
 		printf("ct_to_ts(");
 		print_ct(ct);
 		printf(")");
 	}
 
+	/*
+	 * Many realtime clocks store the year as 2-digit BCD; pivot on 70 to
+	 * determine century.  Some clocks have a "century bit" and drivers do
+	 * year += 100, so interpret values between 70-199 as relative to 1900.
+	 */
+	year = ct->year;
+	if (year < 70)
+		year += 2000;
+	else if (year < 200)
+		year += 1900;
+
 	/* Sanity checks. */
 	if (ct->mon < 1 || ct->mon > 12 || ct->day < 1 ||
 	    ct->day > days_in_month(year, ct->mon) ||
-	    ct->hour > 23 ||  ct->min > 59 || ct->sec > 59 ||
+	    ct->hour > 23 ||  ct->min > 59 || ct->sec > 59 || year < 1970 ||
 	    (sizeof(time_t) == 4 && year > 2037)) {	/* time_t overflow */
 		if (ct_debug)
 			printf(" = EINVAL\n");
@@ -184,7 +193,7 @@ clock_ct_to_ts(struct clocktime *ct, struct timespec *ts)
 	ts->tv_nsec = ct->nsec;
 
 	if (ct_debug)
-		printf(" = %ld.%09ld\n", (long)ts->tv_sec, (long)ts->tv_nsec);
+		printf(" = %jd.%09ld\n", (intmax_t)ts->tv_sec, ts->tv_nsec);
 	return (0);
 }
 
@@ -228,8 +237,8 @@ clock_ts_to_ct(struct timespec *ts, struct clocktime *ct)
 	ct->sec  = rsec;
 	ct->nsec = ts->tv_nsec;
 	if (ct_debug) {
-		printf("ts_to_ct(%ld.%09ld) = ",
-		    (long)ts->tv_sec, (long)ts->tv_nsec);
+		printf("ts_to_ct(%jd.%09ld) = ",
+		    (intmax_t)ts->tv_sec, ts->tv_nsec);
 		print_ct(ct);
 		printf("\n");
 	}
