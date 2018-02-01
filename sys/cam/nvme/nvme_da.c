@@ -379,7 +379,7 @@ ndadump(void *arg, void *virtual, vm_offset_t physical, off_t offset, size_t len
 	struct	    cam_periph *periph;
 	struct	    nda_softc *softc;
 	u_int	    secsize;
-	union	    ccb ccb;
+	struct ccb_nvmeio nvmeio;
 	struct	    disk *dp;
 	uint64_t    lba;
 	uint32_t    count;
@@ -398,16 +398,18 @@ ndadump(void *arg, void *virtual, vm_offset_t physical, off_t offset, size_t len
 		return (ENXIO);
 	}
 
+	/* xpt_get_ccb returns a zero'd allocation for the ccb, mimic that here */
+	memset(&nvmeio, 0, sizeof(nvmeio));
 	if (length > 0) {
-		xpt_setup_ccb(&ccb.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
-		ccb.ccb_h.ccb_state = NDA_CCB_DUMP;
-		nda_nvme_write(softc, &ccb.nvmeio, virtual, lba, length, count);
-		xpt_polled_action(&ccb);
+		xpt_setup_ccb(&nvmeio.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
+		nvmeio.ccb_h.ccb_state = NDA_CCB_DUMP;
+		nda_nvme_write(softc, &nvmeio, virtual, lba, length, count);
+		xpt_polled_action((union ccb *)&nvmeio);
 
-		error = cam_periph_error(&ccb,
+		error = cam_periph_error((union ccb *)&nvmeio,
 		    0, SF_NO_RECOVERY | SF_NO_RETRY, NULL);
-		if ((ccb.ccb_h.status & CAM_DEV_QFRZN) != 0)
-			cam_release_devq(ccb.ccb_h.path, /*relsim_flags*/0,
+		if ((nvmeio.ccb_h.status & CAM_DEV_QFRZN) != 0)
+			cam_release_devq(nvmeio.ccb_h.path, /*relsim_flags*/0,
 			    /*reduction*/0, /*timeout*/0, /*getcount_only*/0);
 		if (error != 0)
 			printf("Aborting dump due to I/O error.\n");
@@ -417,16 +419,16 @@ ndadump(void *arg, void *virtual, vm_offset_t physical, off_t offset, size_t len
 	}
 	
 	/* Flush */
-	xpt_setup_ccb(&ccb.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
+	xpt_setup_ccb(&nvmeio.ccb_h, periph->path, CAM_PRIORITY_NORMAL);
 
-	ccb.ccb_h.ccb_state = NDA_CCB_DUMP;
-	nda_nvme_flush(softc, &ccb.nvmeio);
-	xpt_polled_action(&ccb);
+	nvmeio.ccb_h.ccb_state = NDA_CCB_DUMP;
+	nda_nvme_flush(softc, &nvmeio);
+	xpt_polled_action((union ccb *)&nvmeio);
 
-	error = cam_periph_error(&ccb,
+	error = cam_periph_error((union ccb *)&nvmeio,
 	    0, SF_NO_RECOVERY | SF_NO_RETRY, NULL);
-	if ((ccb.ccb_h.status & CAM_DEV_QFRZN) != 0)
-		cam_release_devq(ccb.ccb_h.path, /*relsim_flags*/0,
+	if ((nvmeio.ccb_h.status & CAM_DEV_QFRZN) != 0)
+		cam_release_devq(nvmeio.ccb_h.path, /*relsim_flags*/0,
 		    /*reduction*/0, /*timeout*/0, /*getcount_only*/0);
 	if (error != 0)
 		xpt_print(periph->path, "flush cmd failed\n");
@@ -743,7 +745,7 @@ ndaregister(struct cam_periph *periph, void *arg)
 	/*
 	 * The name space ID is the lun, save it for later I/O
 	 */
-	softc->nsid = (uint16_t)xpt_path_lun_id(periph->path);
+	softc->nsid = (uint32_t)xpt_path_lun_id(periph->path);
 
 	/*
 	 * Register this media as a disk
@@ -1006,12 +1008,7 @@ ndadone(struct cam_periph *periph, union ccb *done_ccb)
 			bp->bio_resid = bp->bio_bcount;
 			bp->bio_flags |= BIO_ERROR;
 		} else {
-			if (state == NDA_CCB_TRIM)
-				bp->bio_resid = 0;
-			else
-				bp->bio_resid = nvmeio->resid;
-			if (bp->bio_resid > 0)
-				bp->bio_flags |= BIO_ERROR;
+			bp->bio_resid = 0;
 		}
 		if (state == NDA_CCB_TRIM)
 			free(bp->bio_driver2, M_NVMEDA);
