@@ -2,12 +2,7 @@
 
 .include <bsd.init.mk>
 
-.if ${MK_FORTH} != "no"
-.include	"${BOOTSRC}/ficl.mk"
-.endif
-
 LIB=	efi
-INTERNALLIB=
 WARNS?=	2
 
 SRCS=	delay.c devpath.c efi_console.c efichar.c efinet.c efipart.c env.c errno.c \
@@ -51,7 +46,5 @@ CFLAGS+= ${FORMAT_EXTENSIONS}
 .if ${MACHINE_CPUARCH} != "arm" && ${MACHINE_CPUARCH} != "aarch64"
 CFLAGS+= -DTERM_EMU
 .endif
-
-CFLAGS+= -DLIBEFI
 
 .include <bsd.lib.mk>
