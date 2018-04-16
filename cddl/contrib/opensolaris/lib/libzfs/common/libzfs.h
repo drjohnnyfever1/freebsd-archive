@@ -22,7 +22,7 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011 Pawel Jakub Dawidek. All rights reserved.
- * Copyright (c) 2011, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
  * Copyright (c) 2012, Joyent, Inc. All rights reserved.
  * Copyright (c) 2012 Martin Matuska <mm@FreeBSD.org>. All rights reserved.
  * Copyright (c) 2013 Steven Hartland. All rights reserved.
@@ -131,6 +131,12 @@ typedef enum zfs_error {
 	EZFS_DIFFDATA,		/* bad zfs diff data */
 	EZFS_POOLREADONLY,	/* pool is in read-only mode */
 	EZFS_SCRUB_PAUSED,	/* scrub currently paused */
+	EZFS_NO_PENDING,	/* cannot cancel, no operation is pending */
+	EZFS_CHECKPOINT_EXISTS,	/* checkpoint exists */
+	EZFS_DISCARDING_CHECKPOINT,	/* currently discarding a checkpoint */
+	EZFS_NO_CHECKPOINT,	/* pool has no checkpoint */
+	EZFS_DEVRM_IN_PROGRESS,	/* a device is currently being removed */
+	EZFS_VDEV_TOO_BIG,	/* a device is too big to be used */
 	EZFS_UNKNOWN
 } zfs_error_t;
 
@@ -267,6 +273,8 @@ extern int zpool_vdev_attach(zpool_handle_t *, const char *,
     const char *, nvlist_t *, int);
 extern int zpool_vdev_detach(zpool_handle_t *, const char *);
 extern int zpool_vdev_remove(zpool_handle_t *, const char *);
+extern int zpool_vdev_remove_cancel(zpool_handle_t *);
+extern int zpool_vdev_indirect_size(zpool_handle_t *, const char *, uint64_t *);
 extern int zpool_vdev_split(zpool_handle_t *, char *, nvlist_t **, nvlist_t *,
     splitflags_t);
 
@@ -388,6 +396,7 @@ typedef struct importargs {
 	int can_be_active : 1;	/* can the pool be active?		*/
 	int unique : 1;		/* does 'poolname' already exist?	*/
 	int exists : 1;		/* set on return if pool already exists	*/
+	nvlist_t *policy;	/* load policy (max txg, rewind, etc.)	*/
 } importargs_t;
 
 extern nvlist_t *zpool_search_import(libzfs_handle_t *, importargs_t *);
@@ -416,6 +425,8 @@ extern int zfs_ioctl(libzfs_handle_t *, int request, struct zfs_cmd *);
 extern int zpool_get_physpath(zpool_handle_t *, char *, size_t);
 extern void zpool_explain_recover(libzfs_handle_t *, const char *, int,
     nvlist_t *);
+extern int zpool_checkpoint(zpool_handle_t *);
+extern int zpool_discard_checkpoint(zpool_handle_t *);
 
 /*
  * Basic handle manipulations.  These functions do not create or destroy the
@@ -825,6 +836,7 @@ extern int zpool_fru_set(zpool_handle_t *, uint64_t, const char *);
 extern int zmount(const char *, const char *, int, char *, char *, int, char *,
     int);
 #endif
+extern int zfs_remap_indirects(libzfs_handle_t *hdl, const char *);
 
 #ifdef	__cplusplus
 }
