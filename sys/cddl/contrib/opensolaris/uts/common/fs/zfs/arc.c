@@ -5107,6 +5107,7 @@ arc_buf_access(arc_buf_t *buf)
 	 */
 	if (hdr->b_l1hdr.b_state == arc_anon || HDR_EMPTY(hdr)) {
 		mutex_exit(&buf->b_evict_lock);
+		ARCSTAT_BUMP(arcstat_access_skip);
 		return;
 	}
 
@@ -5130,11 +5131,11 @@ arc_buf_access(arc_buf_t *buf)
 	mutex_exit(hash_lock);
 
 	ARCSTAT_BUMP(arcstat_hits);
-	ARCSTAT_CONDSTAT(!HDR_PREFETCH(hdr), demand, prefetch,
-	    !HDR_ISTYPE_METADATA(hdr), data, metadata, hits);
+	ARCSTAT_CONDSTAT(!HDR_PREFETCH(hdr),
+	    demand, prefetch, !HDR_ISTYPE_METADATA(hdr), data, metadata, hits);
 }
 
-/* a generic arc_read_done_func_t which you can use */
+/* a generic arc_done_func_t which you can use */
 /* ARGSUSED */
 void
 arc_bcopy_func(zio_t *zio, arc_buf_t *buf, void *arg)
