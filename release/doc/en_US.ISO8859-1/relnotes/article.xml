@@ -11,7 +11,9 @@
 <!ENTITY errata SYSTEM "../../share/xml/errata.xml">
 ]>
 <article xmlns="http://docbook.org/ns/docbook"
-  xmlns:xlink="http://www.w3.org/1999/xlink" version="5.0">
+  xmlns:xlink="http://www.w3.org/1999/xlink"
+  xml:id="article"
+  version="5.0">
 
   <info>
     <title>&os; &release.current; Release Notes</title>
@@ -337,6 +339,12 @@
 	allow the <literal>@</literal> and <literal>!</literal>
 	characters in the <acronym>GECOS</acronym> field.</para>
 
+      <para revision="330733" contrib="sponsor"
+	sponsor="&spectralogic;">The &man.zfsd.8; utility has been
+	updated to work with any type of <acronym>GEOM</acronym>
+	provider, including &man.md.4;, &man.geli.8;, &man.glabel.8;,
+	and &man.gstripe.8;.</para>
+
       <para revision="331471">The &man.ps.1; utility has been updated
 	to include a <literal>jail</literal> keyword, which when used
 	will list the name of a &man.jail.8; instead of the numeric
@@ -392,9 +400,6 @@
       <para revision="321303">The &man.libarchive.3; library has been
 	updated to version 3.3.2.</para>
 
-      <para revision="322172">The &man.libxo.3; library has been
-	updated to version 0.8.4.</para>
-
       <para revision="322442"><application>Subversion</application>
 	has been updated to version 1.9.7.</para>
 
@@ -441,6 +446,9 @@
 
       <para revision="333312">Timezone data files have been updated to
 	version 2018e.</para>
+
+      <para revision="334458">The &man.libxo.3; library has been
+	updated to version 0.9.0.</para>
     </sect2>
 
     <sect2 xml:id="userland-installer">
@@ -495,19 +503,41 @@
     <sect2 xml:id="kernel-general">
       <title>General Kernel Changes</title>
 
-      <para>&nbsp;</para>
+      <para revision="321007">The &man.linux.4; <acronym>ABI</acronym>
+	compaibility layer has been updated to include support for
+	<literal>musl</literal> consumers.</para>
+
+      <para revision="322340">The &man.fdescfs.5; filesystem has been
+	updated to support &linux;-specific &man.fd.4;
+	<filename>/dev/fd</filename> and
+	<filename>/proc/self/fd</filename> behavior.</para>
+
+      <para revision="323447">Support for multiple realtime clocks has
+	been added.</para>
     </sect2>
 
     <sect2 xml:id="kernel-bugfix">
       <title>Kernel Bug Fixes</title>
 
-      <para>&nbsp;</para>
+      <para revision="324175">The &man.ng.iface.4; driver has been
+	updated to prevent a possible system crash.</para>
+
+      <para revision="325730">The &man.ipfw.4; packet filter has been
+	updated to identify layer-2 and layer-3 packets, fixing
+	&man.dummynet.4; <acronym>AQM</acronym> packet marking.</para>
+
+      <para revision="333166">An issue causing boot issues with
+	&intel; Apollo Lake&trade; <acronym>CPU</acronym>s has been
+	fixed.</para>
     </sect2>
 
     <sect2 xml:id="kernel-config">
       <title>Kernel Configuration</title>
 
-      <para>&nbsp;</para>
+      <para revision="327920">The &man.watchdog.4; facility has been
+	updated to make <literal>SW_WATCHDOG</literal> dynamic,
+	enabling the software &man.watchdogd.8; option whenever
+	a hardware watchdog is not present.</para>
     </sect2>
 
     <sect2 xml:id="kernel-modules">
@@ -519,7 +549,10 @@
     <sect2 xml:id="kernel-sysctl">
       <title>System Tuning and Controls</title>
 
-      <para>&nbsp;</para>
+      <para revision="326322" contrib="sponsor"
+	sponsor="&spectralogic;">The
+	<literal>p1003_1b.aio_listio_max</literal> &man.sysctl.8; has
+	been changed to a runtime-configurable tunable.</para>
     </sect2>
   </sect1>
 
@@ -532,6 +565,10 @@
     <sect2 xml:id="drivers-device">
       <title>Device Drivers</title>
 
+      <para revision="331058">The &man.ng.pppoe.4; driver has been
+	updated to add support for user-supplied
+	<literal>Host-Uniq</literal> tags.</para>
+
       <para revision="331586" contrib="sponsor"
 	sponsor="&mellanox;">The &man.mlx5io.4; driver has been added,
 	providing an interface to manage supported Connect-X&nbsp;4
@@ -541,6 +578,17 @@
 	sponsor="&chelsio;">The &man.cxgbe.4; driver has been updated
 	to firmware version 1.16.63.0 for T4, T5, and T6 network
 	adapters.</para>
+
+      <para revision="332040" contrib="sponsor"
+	sponsor="&broadcom;">The &man.ocs.fc.4; driver has been added,
+	supporting Emulex&nbsp;16/8G&nbsp;FC&nbsp;GEN&nbsp;5
+	<acronym>HBA</acronym>s LPe15004 and LPe160XX, and
+	Emulex&nbsp;32/16G&nbsp;FC&nbsp;GEN&nbsp;6
+	<acronym>HBA</acronym>s LPe3100X and LPe3200X.</para>
+
+      <para revision="333343" contrib="sponsor"
+	sponsor="&intelcorp;">The &man.ixl.4; driver has been updated
+	to version 1.9.9-k.</para>
     </sect2>
 
     <sect2 xml:id="drivers-storage">
@@ -588,6 +636,10 @@
 
       <para revision="333738">The &man.vxge.4; driver has been marked
 	as deprecated, and will be removed in &os;&nbsp;12.</para>
+
+      <para revision="333417">The &man.smartpqi.4; driver has been
+	added, providing support for Microsemi&reg;
+	<acronym>SCSI</acronym> controllers.</para>
     </sect2>
 
     <sect2 xml:id="hardware-virtualization">
@@ -650,6 +702,16 @@
     <sect2 xml:id="boot-loader">
       <title>Boot Loader Changes</title>
 
+      <para revision="321519">The boot code and &man.loader.8; have
+	been updated to check for unsupported <acronym>ZFS</acronym>
+	feature flags.  If unsupported features are active, the pool
+	is not considered as a bootable pool, and a diagnostic message
+	is printed to the console.</para>
+
+      <para revision="329010">The &man.loader.8; has been updated to
+	improve quotation parsing, distinguishing between single- and
+	double-quotes, and check for terminating quotes.</para>
+
       <para revision="329114">The length of <acronym>GELI</acronym>
 	passphrases entered when booting a system with encrypted disks
 	is now hidden by default.  See the configuration options in
@@ -672,7 +734,9 @@
     <sect2 xml:id="network-general">
       <title>General Network Changes</title>
 
-      <para>&nbsp;</para>
+      <para revision="329581" contrib="sponsor"
+	sponsor="&dellemc;">The &man.icmp6.4; protocol has been
+	updated to fix <acronym>ICMPv6</acronym> redirects.</para>
     </sect2>
 
     <sect2 xml:id="network-protocols">
@@ -736,7 +800,7 @@
 	EC2&trade; infrastructure.</para>
 
       <para revision="333410" contrib="sponsor" sponsor="&ff;">The
-	&arch.i386; memory stick image installer have been changed
+	&arch.i386; memory stick image installers have been changed
 	to use the <acronym>MBR</acronym> partitioning scheme, which
 	addresses a boot issue from a <acronym>GPT</acronym> partition
 	scheme in non-<acronym>UEFI</acronym> mode.</para>
@@ -748,6 +812,12 @@
 	<acronym>EFI</acronym>.  The <acronym>ISO</acronym> image can
 	now be written to a memory stick as well as being used as
 	a <acronym>CD</acronym> image.</para>
+
+      <para revision="334444" contrib="sponsor" sponsor="&ff;">The
+	&arch.amd64; memory stick image installers have been changed
+	to use the <acronym>MBR</acronym> partitioning scheme, which
+	addresses a boot issue from a <acronym>GPT</acronym> partition
+	scheme in non-<acronym>UEFI</acronym> mode.</para>
     </sect2>
   </sect1>
 </article>
