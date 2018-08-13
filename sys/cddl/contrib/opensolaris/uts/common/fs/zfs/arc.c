@@ -7101,6 +7101,7 @@ arc_init(void)
 	arc_meta_limit = MIN(arc_meta_limit,
 	    vmem_size(heap_arena, VMEM_ALLOC | VMEM_FREE) / 2);
 #endif
+#endif
 
 	/* Allow the tunable to override if it is reasonable */
 	if (zfs_arc_meta_limit > 0 && zfs_arc_meta_limit <= arc_c_max)
