@@ -7094,13 +7094,9 @@ arc_init(void)
 	 * Metadata is stored in the kernel's heap.  Don't let us
 	 * use more than half the heap for the ARC.
 	 */
-#ifdef __FreeBSD__
-	arc_meta_limit = MIN(arc_meta_limit, uma_limit() / 2);
-	arc_dnode_limit = arc_meta_limit / 10;
-#else
 	arc_meta_limit = MIN(arc_meta_limit,
 	    vmem_size(heap_arena, VMEM_ALLOC | VMEM_FREE) / 2);
-#endif
+	arc_dnode_limit = arc_meta_limit / 10;
 #endif
 
 	/* Allow the tunable to override if it is reasonable */
