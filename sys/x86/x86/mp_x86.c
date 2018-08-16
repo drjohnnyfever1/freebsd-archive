@@ -31,7 +31,6 @@ __FBSDID("$FreeBSD$");
 #include "opt_apic.h"
 #endif
 #include "opt_cpu.h"
-#include "opt_isa.h"
 #include "opt_kstack_pages.h"
 #include "opt_pmap.h"
 #include "opt_sched.h"
@@ -1246,7 +1245,6 @@ ipi_nmi_handler(void)
 	return (0);
 }
 
-#ifdef DEV_ISA
 int nmi_kdb_lock;
 
 void
@@ -1270,7 +1268,6 @@ nmi_call_kdb_smp(u_int type, struct trapframe *frame)
 	if (call_post)
 		cpustop_handler_post(cpu);
 }
-#endif
 
 /*
  * Handle an IPI_STOP by saving our current context and spinning until we
