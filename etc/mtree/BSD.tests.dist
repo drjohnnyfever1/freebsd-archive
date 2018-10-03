@@ -420,6 +420,10 @@
         ..
         aio
         ..
+        audit
+        ..
+        auditpipe
+        ..
         capsicum
         ..
         fifo
