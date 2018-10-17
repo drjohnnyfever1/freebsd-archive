@@ -189,7 +189,8 @@ sys_quotactl(struct thread *td, struct quotactl_args *uap)
 	 * Require that Q_QUOTAON handles the vfs_busy() reference on
 	 * its own, always returning with ubusied mount point.
 	 */
-	if ((uap->cmd >> SUBCMDSHIFT) != Q_QUOTAON)
+	if ((uap->cmd >> SUBCMDSHIFT) != Q_QUOTAON &&
+	    (uap->cmd >> SUBCMDSHIFT) != Q_QUOTAOFF)
 		vfs_unbusy(mp);
 	return (error);
 }
@@ -600,6 +601,8 @@ freebsd4_getfsstat(struct thread *td, struct freebsd4_getfsstat_args *uap)
 	size = count * sizeof(struct statfs);
 	error = kern_getfsstat(td, &buf, size, &count, UIO_SYSSPACE,
 	    uap->mode);
+	if (buf == NULL)
+		return (EINVAL);
 	td->td_retval[0] = count;
 	if (size != 0) {
 		sp = buf;
