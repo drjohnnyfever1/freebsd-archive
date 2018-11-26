@@ -156,11 +156,17 @@ typedef struct efx_rx_ops_s {
 	efx_rc_t	(*erxo_scatter_enable)(efx_nic_t *, unsigned int);
 #endif
 #if EFSYS_OPT_RX_SCALE
-	efx_rc_t	(*erxo_scale_mode_set)(efx_nic_t *, efx_rx_hash_alg_t,
+	efx_rc_t	(*erxo_scale_context_alloc)(efx_nic_t *,
+						    efx_rx_scale_context_type_t,
+						    uint32_t, uint32_t *);
+	efx_rc_t	(*erxo_scale_context_free)(efx_nic_t *, uint32_t);
+	efx_rc_t	(*erxo_scale_mode_set)(efx_nic_t *, uint32_t,
+					       efx_rx_hash_alg_t,
 					       efx_rx_hash_type_t, boolean_t);
-	efx_rc_t	(*erxo_scale_key_set)(efx_nic_t *, uint8_t *, size_t);
-	efx_rc_t	(*erxo_scale_tbl_set)(efx_nic_t *, unsigned int *,
-					      size_t);
+	efx_rc_t	(*erxo_scale_key_set)(efx_nic_t *, uint32_t,
+					      uint8_t *, size_t);
+	efx_rc_t	(*erxo_scale_tbl_set)(efx_nic_t *, uint32_t,
+					      unsigned int *, size_t);
 	uint32_t	(*erxo_prefix_hash)(efx_nic_t *, efx_rx_hash_alg_t,
 					    uint8_t *);
 #endif /* EFSYS_OPT_RX_SCALE */
@@ -170,11 +176,18 @@ typedef struct efx_rx_ops_s {
 				      unsigned int, unsigned int,
 				      unsigned int);
 	void		(*erxo_qpush)(efx_rxq_t *, unsigned int, unsigned int *);
+#if EFSYS_OPT_RX_PACKED_STREAM
+	void		(*erxo_qpush_ps_credits)(efx_rxq_t *);
+	uint8_t *	(*erxo_qps_packet_info)(efx_rxq_t *, uint8_t *,
+						uint32_t, uint32_t,
+						uint16_t *, uint32_t *, uint32_t *);
+#endif
 	efx_rc_t	(*erxo_qflush)(efx_rxq_t *);
 	void		(*erxo_qenable)(efx_rxq_t *);
 	efx_rc_t	(*erxo_qcreate)(efx_nic_t *enp, unsigned int,
-					unsigned int, efx_rxq_type_t,
+					unsigned int, efx_rxq_type_t, uint32_t,
 					efsys_mem_t *, size_t, uint32_t,
+					unsigned int,
 					efx_evq_t *, efx_rxq_t *);
 	void		(*erxo_qdestroy)(efx_rxq_t *);
 } efx_rx_ops_t;
@@ -196,6 +209,7 @@ typedef struct efx_mac_ops_s {
 #endif	/* EFSYS_OPT_LOOPBACK */
 #if EFSYS_OPT_MAC_STATS
 	efx_rc_t	(*emo_stats_get_mask)(efx_nic_t *, uint32_t *, size_t);
+	efx_rc_t	(*emo_stats_clear)(efx_nic_t *);
 	efx_rc_t	(*emo_stats_upload)(efx_nic_t *, efsys_mem_t *);
 	efx_rc_t	(*emo_stats_periodic)(efx_nic_t *, efsys_mem_t *,
 					      uint16_t, boolean_t);
@@ -287,7 +301,6 @@ typedef struct efx_port_s {
 	uint32_t		ep_default_adv_cap_mask;
 	uint32_t		ep_phy_cap_mask;
 	boolean_t		ep_mac_drain;
-	boolean_t		ep_mac_stats_pending;
 #if EFSYS_OPT_BIST
 	efx_bist_type_t		ep_current_bist;
 #endif
@@ -349,12 +362,7 @@ typedef struct efx_nic_ops_s {
 #ifndef EFX_RXQ_LIMIT_TARGET
 #define	EFX_RXQ_LIMIT_TARGET 512
 #endif
-#ifndef EFX_TXQ_DC_SIZE
-#define	EFX_TXQ_DC_SIZE 1 /* 16 descriptors */
-#endif
-#ifndef EFX_RXQ_DC_SIZE
-#define	EFX_RXQ_DC_SIZE 3 /* 64 descriptors */
-#endif
+
 
 #if EFSYS_OPT_FILTER
 
@@ -444,6 +452,10 @@ typedef struct efx_mcdi_s {
 #endif /* EFSYS_OPT_MCDI */
 
 #if EFSYS_OPT_NVRAM
+
+/* Invalid partition ID for en_nvram_partn_locked field of efx_nc_t */
+#define	EFX_NVRAM_PARTN_INVALID		(0xffffffffu)
+
 typedef struct efx_nvram_ops_s {
 #if EFSYS_OPT_DIAG
 	efx_rc_t	(*envo_test)(efx_nic_t *);
@@ -454,11 +466,14 @@ typedef struct efx_nvram_ops_s {
 	efx_rc_t	(*envo_partn_rw_start)(efx_nic_t *, uint32_t, size_t *);
 	efx_rc_t	(*envo_partn_read)(efx_nic_t *, uint32_t,
 					    unsigned int, caddr_t, size_t);
+	efx_rc_t	(*envo_partn_read_backup)(efx_nic_t *, uint32_t,
+					    unsigned int, caddr_t, size_t);
 	efx_rc_t	(*envo_partn_erase)(efx_nic_t *, uint32_t,
 					    unsigned int, size_t);
 	efx_rc_t	(*envo_partn_write)(efx_nic_t *, uint32_t,
 					    unsigned int, caddr_t, size_t);
-	efx_rc_t	(*envo_partn_rw_finish)(efx_nic_t *, uint32_t);
+	efx_rc_t	(*envo_partn_rw_finish)(efx_nic_t *, uint32_t,
+					    uint32_t *);
 	efx_rc_t	(*envo_partn_get_version)(efx_nic_t *, uint32_t,
 					    uint32_t *, uint16_t *);
 	efx_rc_t	(*envo_partn_set_version)(efx_nic_t *, uint32_t,
@@ -547,7 +562,7 @@ efx_mcdi_nvram_update_finish(
 	__in			efx_nic_t *enp,
 	__in			uint32_t partn,
 	__in			boolean_t reboot,
-	__out_opt		uint32_t *resultp);
+	__out_opt		uint32_t *verify_resultp);
 
 #if EFSYS_OPT_DIAG
 
@@ -630,16 +645,16 @@ struct efx_nic_s {
 	efx_mcdi_t		en_mcdi;
 #endif	/* EFSYS_OPT_MCDI */
 #if EFSYS_OPT_NVRAM
-	efx_nvram_type_t	en_nvram_locked;
+	uint32_t		en_nvram_partn_locked;
 	const efx_nvram_ops_t	*en_envop;
 #endif	/* EFSYS_OPT_NVRAM */
 #if EFSYS_OPT_VPD
 	const efx_vpd_ops_t	*en_evpdop;
 #endif	/* EFSYS_OPT_VPD */
 #if EFSYS_OPT_RX_SCALE
-	efx_rx_hash_support_t	en_hash_support;
-	efx_rx_scale_support_t	en_rss_support;
-	uint32_t		en_rss_context;
+	efx_rx_hash_support_t		en_hash_support;
+	efx_rx_scale_context_type_t	en_rss_context_type;
+	uint32_t			en_rss_context;
 #endif	/* EFSYS_OPT_RX_SCALE */
 	uint32_t		en_vport_id;
 #if EFSYS_OPT_LICENSING
@@ -694,6 +709,11 @@ typedef	boolean_t (*efx_ev_handler_t)(efx_evq_t *, efx_qword_t *,
 typedef struct efx_evq_rxq_state_s {
 	unsigned int			eers_rx_read_ptr;
 	unsigned int			eers_rx_mask;
+#if EFSYS_OPT_RX_PACKED_STREAM
+	unsigned int			eers_rx_stream_npackets;
+	boolean_t			eers_rx_packed_stream;
+	unsigned int			eers_rx_packed_stream_credits;
+#endif
 } efx_evq_rxq_state_t;
 
 struct efx_evq_s {
@@ -732,6 +752,7 @@ struct efx_rxq_s {
 	unsigned int			er_label;
 	unsigned int			er_mask;
 	efsys_mem_t			*er_esmp;
+	efx_evq_rxq_state_t		*er_ev_qstate;
 };
 
 #define	EFX_RXQ_MAGIC	0x15022005
@@ -1014,8 +1035,7 @@ struct efx_txq_s {
 	do {								\
 		EFX_CHECK_REG((_enp), (_reg));				\
 		EFSYS_PROBE7(efx_bar_tbl_doorbell_writeo,		\
-		    const char *,					\
-		    #_reg,						\
+		    const char *, #_reg,				\
 		    uint32_t, (_index),					\
 		    uint32_t, _reg ## _OFST,				\
 		    uint32_t, (_eop)->eo_u32[3],			\
@@ -1048,10 +1068,6 @@ struct efx_txq_s {
 			    (_entries) * sizeof (efx_desc_t));		\
 	_NOTE(CONSTANTCONDITION)					\
 	} while (B_FALSE)
-
-extern	__checkReturn	efx_rc_t
-efx_nic_biu_test(
-	__in		efx_nic_t *enp);
 
 extern	__checkReturn	efx_rc_t
 efx_mac_select(
@@ -1120,32 +1136,6 @@ efx_vpd_hunk_set(
 	__in			efx_vpd_value_t *evvp);
 
 #endif	/* EFSYS_OPT_VPD */
-
-#if EFSYS_OPT_DIAG
-
-extern	efx_sram_pattern_fn_t	__efx_sram_pattern_fns[];
-
-typedef struct efx_register_set_s {
-	unsigned int		address;
-	unsigned int		step;
-	unsigned int		rows;
-	efx_oword_t		mask;
-} efx_register_set_t;
-
-extern	__checkReturn	efx_rc_t
-efx_nic_test_registers(
-	__in		efx_nic_t *enp,
-	__in		efx_register_set_t *rsp,
-	__in		size_t count);
-
-extern	__checkReturn	efx_rc_t
-efx_nic_test_tables(
-	__in		efx_nic_t *enp,
-	__in		efx_register_set_t *rsp,
-	__in		efx_pattern_type_t pattern,
-	__in		size_t count);
-
-#endif	/* EFSYS_OPT_DIAG */
 
 #if EFSYS_OPT_MCDI
 
