@@ -535,8 +535,9 @@ knote_fork(struct knlist *list, int pid)
 
 	if (list == NULL)
 		return;
-	list->kl_lock(list->kl_lockarg);
 
+	memset(&kev, 0, sizeof(kev));
+	list->kl_lock(list->kl_lockarg);
 	SLIST_FOREACH(kn, &list->kl_list, kn_selnext) {
 		kq = kn->kn_kq;
 		KQ_LOCK(kq);
@@ -549,10 +550,8 @@ knote_fork(struct knlist *list, int pid)
 		 * The same as knote(), activate the event.
 		 */
 		if ((kn->kn_sfflags & NOTE_TRACK) == 0) {
-			kn->kn_status |= KN_HASKQLOCK;
 			if (kn->kn_fop->f_event(kn, NOTE_FORK))
 				KNOTE_ACTIVATE(kn, 1);
-			kn->kn_status &= ~KN_HASKQLOCK;
 			KQ_UNLOCK(kq);
 			continue;
 		}
@@ -602,10 +601,10 @@ knote_fork(struct knlist *list, int pid)
 			kn->kn_fflags |= NOTE_TRACKERR;
 		if (kn->kn_fop->f_event(kn, NOTE_FORK))
 			KNOTE_ACTIVATE(kn, 0);
+		list->kl_lock(list->kl_lockarg);
 		KQ_LOCK(kq);
 		kn_leave_flux(kn);
 		KQ_UNLOCK_FLUX(kq);
-		list->kl_lock(list->kl_lockarg);
 	}
 	list->kl_unlock(list->kl_lockarg);
 }
@@ -1462,8 +1461,11 @@ findkn:
 					break;
 		}
 	} else {
-		if ((kev->flags & EV_ADD) == EV_ADD)
-			kqueue_expand(kq, fops, kev->ident, waitok);
+		if ((kev->flags & EV_ADD) == EV_ADD) {
+			error = kqueue_expand(kq, fops, kev->ident, waitok);
+			if (error != 0)
+				goto done;
+		}
 
 		KQ_LOCK(kq);
 
@@ -1699,12 +1701,12 @@ kqueue_expand(struct kqueue *kq, struct filterops *fops, uintptr_t ident,
 {
 	struct klist *list, *tmp_knhash, *to_free;
 	u_long tmp_knhashmask;
-	int size;
-	int fd;
+	int error, fd, size;
 	int mflag = waitok ? M_WAITOK : M_NOWAIT;
 
 	KQ_NOTOWNED(kq);
 
+	error = 0;
 	to_free = NULL;
 	if (fops->f_isfd) {
 		fd = ident;
@@ -1716,9 +1718,11 @@ kqueue_expand(struct kqueue *kq, struct filterops *fops, uintptr_t ident,
 			if (list == NULL)
 				return ENOMEM;
 			KQ_LOCK(kq);
-			if (kq->kq_knlistsize > fd) {
+			if ((kq->kq_state & KQ_CLOSING) != 0) {
 				to_free = list;
-				list = NULL;
+				error = EBADF;
+			} else if (kq->kq_knlistsize > fd) {
+				to_free = list;
 			} else {
 				if (kq->kq_knlist != NULL) {
 					bcopy(kq->kq_knlist, list,
@@ -1739,9 +1743,12 @@ kqueue_expand(struct kqueue *kq, struct filterops *fops, uintptr_t ident,
 			tmp_knhash = hashinit(KN_HASHSIZE, M_KQUEUE,
 			    &tmp_knhashmask);
 			if (tmp_knhash == NULL)
-				return ENOMEM;
+				return (ENOMEM);
 			KQ_LOCK(kq);
-			if (kq->kq_knhashmask == 0) {
+			if ((kq->kq_state & KQ_CLOSING) != 0) {
+				to_free = tmp_knhash;
+				error = EBADF;
+			} else if (kq->kq_knhashmask == 0) {
 				kq->kq_knhash = tmp_knhash;
 				kq->kq_knhashmask = tmp_knhashmask;
 			} else {
@@ -1753,7 +1760,7 @@ kqueue_expand(struct kqueue *kq, struct filterops *fops, uintptr_t ident,
 	free(to_free, M_KQUEUE);
 
 	KQ_NOTOWNED(kq);
-	return 0;
+	return (error);
 }
 
 static void
@@ -2277,10 +2284,8 @@ knote(struct knlist *list, long hint, int lockflags)
 				KNOTE_ACTIVATE(kn, 1);
 			KQ_UNLOCK_FLUX(kq);
 		} else {
-			kn->kn_status |= KN_HASKQLOCK;
 			if (kn->kn_fop->f_event(kn, hint))
 				KNOTE_ACTIVATE(kn, 1);
-			kn->kn_status &= ~KN_HASKQLOCK;
 			KQ_UNLOCK(kq);
 		}
 	}
@@ -2604,6 +2609,8 @@ knote_attach(struct knote *kn, struct kqueue *kq)
 	KASSERT(kn_in_flux(kn), ("knote %p not marked influx", kn));
 	KQ_OWNED(kq);
 
+	if ((kq->kq_state & KQ_CLOSING) != 0)
+		return (EBADF);
 	if (kn->kn_fop->f_isfd) {
 		if (kn->kn_id >= kq->kq_knlistsize)
 			return (ENOMEM);
