@@ -33,6 +33,7 @@ __FBSDID("$FreeBSD$");
 
 #include "efx.h"
 #include "efx_impl.h"
+#include "mcdi_mon.h"
 
 #if EFSYS_OPT_MON_MCDI
 
@@ -162,6 +163,10 @@ static const struct mcdi_sensor_map_s {
 	STAT(Px, BOARD_BACK_TEMP),	/* 0x50 BOARD_BACK_TEMP */
 	STAT(Px, I1V8),			/* 0x51 IN_I1V8 */
 	STAT(Px, I2V5),			/* 0x52 IN_I2V5 */
+	STAT(Px, I3V3),			/* 0x53 IN_I3V3 */
+	STAT(Px, I12V0),		/* 0x54 IN_I12V0 */
+	STAT(Px, 1_3V),			/* 0x55 IN_1V3 */
+	STAT(Px, I1V3),			/* 0x56 IN_I1V3 */
 };
 
 #define	MCDI_STATIC_SENSOR_ASSERT(_field)				\

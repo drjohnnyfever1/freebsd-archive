@@ -305,7 +305,7 @@ ef10_tx_qpio_enable(
 
 fail3:
 	EFSYS_PROBE(fail3);
-	ef10_nic_pio_free(enp, etp->et_pio_bufnum, etp->et_pio_blknum);
+	(void) ef10_nic_pio_free(enp, etp->et_pio_bufnum, etp->et_pio_blknum);
 fail2:
 	EFSYS_PROBE(fail2);
 	etp->et_pio_size = 0;
@@ -323,10 +323,12 @@ ef10_tx_qpio_disable(
 
 	if (etp->et_pio_size != 0) {
 		/* Unlink the piobuf from this TXQ */
-		ef10_nic_pio_unlink(enp, etp->et_index);
+		if (ef10_nic_pio_unlink(enp, etp->et_index) != 0)
+			return;
 
 		/* Free the sub-allocated PIO block */
-		ef10_nic_pio_free(enp, etp->et_pio_bufnum, etp->et_pio_blknum);
+		(void) ef10_nic_pio_free(enp, etp->et_pio_bufnum,
+		    etp->et_pio_blknum);
 		etp->et_pio_size = 0;
 		etp->et_pio_write_offset = 0;
 	}
@@ -650,6 +652,7 @@ ef10_tx_qdesc_tso_create(
 ef10_tx_qdesc_tso2_create(
 	__in			efx_txq_t *etp,
 	__in			uint16_t ipv4_id,
+	__in			uint16_t outer_ipv4_id,
 	__in			uint32_t tcp_seq,
 	__in			uint16_t tcp_mss,
 	__out_ecount(count)	efx_desc_t *edp,
@@ -671,13 +674,14 @@ ef10_tx_qdesc_tso2_create(
 			    ESE_DZ_TX_TSO_OPTION_DESC_FATSO2A,
 			    ESF_DZ_TX_TSO_IP_ID, ipv4_id,
 			    ESF_DZ_TX_TSO_TCP_SEQNO, tcp_seq);
-	EFX_POPULATE_QWORD_4(edp[1].ed_eq,
+	EFX_POPULATE_QWORD_5(edp[1].ed_eq,
 			    ESF_DZ_TX_DESC_IS_OPT, 1,
 			    ESF_DZ_TX_OPTION_TYPE,
 			    ESE_DZ_TX_OPTION_DESC_TSO,
 			    ESF_DZ_TX_TSO_OPTION_TYPE,
 			    ESE_DZ_TX_TSO_OPTION_DESC_FATSO2B,
-			    ESF_DZ_TX_TSO_TCP_MSS, tcp_mss);
+			    ESF_DZ_TX_TSO_TCP_MSS, tcp_mss,
+			    ESF_DZ_TX_TSO_OUTER_IPID, outer_ipv4_id);
 }
 
 	void
