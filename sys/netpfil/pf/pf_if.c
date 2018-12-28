@@ -44,7 +44,6 @@ __FBSDID("$FreeBSD$");
 #include <sys/eventhandler.h>
 #include <sys/lock.h>
 #include <sys/mbuf.h>
-#include <sys/rwlock.h>
 #include <sys/socket.h>
 
 #include <net/if.h>
@@ -830,6 +829,9 @@ pfi_detach_ifnet_event(void *arg __unused, struct ifnet *ifp)
 {
 	struct pfi_kif *kif = (struct pfi_kif *)ifp->if_pf_kif;
 
+	if (pfsync_detach_ifnet_ptr)
+		pfsync_detach_ifnet_ptr(ifp);
+
 	if (kif == NULL)
 		return;
 
@@ -839,6 +841,7 @@ pfi_detach_ifnet_event(void *arg __unused, struct ifnet *ifp)
 		CURVNET_RESTORE();
 		return;
 	}
+
 	PF_RULES_WLOCK();
 	V_pfi_update++;
 	pfi_kif_update(kif);

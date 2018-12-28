@@ -1429,10 +1429,15 @@ em_init_locked(struct adapter *adapter)
 	*/
 	if (adapter->hw.mac.max_frame_size <= 2048)
 		adapter->rx_mbuf_sz = MCLBYTES;
+#ifndef CONTIGMALLOC_WORKS
+       else
+               adapter->rx_mbuf_sz = MJUMPAGESIZE;
+#else
 	else if (adapter->hw.mac.max_frame_size <= 4096)
 		adapter->rx_mbuf_sz = MJUMPAGESIZE;
 	else
 		adapter->rx_mbuf_sz = MJUM9BYTES;
+#endif
 
 	/* Prepare receive descriptors and buffers */
 	if (em_setup_receive_structures(adapter)) {
@@ -3639,7 +3644,7 @@ em_setup_transmit_ring(struct tx_ring *txr)
 		}
 #ifdef DEV_NETMAP
 		if (slot) {
-			int si = netmap_idx_n2k(&na->tx_rings[txr->me], i);
+			int si = netmap_idx_n2k(na->tx_rings[txr->me], i);
 			uint64_t paddr;
 			void *addr;
 
@@ -4431,7 +4436,7 @@ em_setup_receive_ring(struct rx_ring *rxr)
 		rxbuf = &rxr->rx_buffers[j];
 #ifdef DEV_NETMAP
 		if (slot) {
-			int si = netmap_idx_n2k(&na->rx_rings[rxr->me], j);
+			int si = netmap_idx_n2k(na->rx_rings[rxr->me], j);
 			uint64_t paddr;
 			void *addr;
 
@@ -4736,7 +4741,7 @@ em_initialize_receive_unit(struct adapter *adapter)
 		 */
 		if (if_getcapenable(ifp) & IFCAP_NETMAP) {
 			struct netmap_adapter *na = netmap_getna(adapter->ifp);
-			rdt -= nm_kr_rxspace(&na->rx_rings[i]);
+			rdt -= nm_kr_rxspace(na->rx_rings[i]);
 		}
 #endif /* DEV_NETMAP */
 		E1000_WRITE_REG(hw, E1000_RDT(i), rdt);
