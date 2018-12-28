@@ -1259,8 +1259,8 @@ pf_state_insert(struct pfi_kif *kif, struct pf_state_key *skw,
 	refcount_init(&s->refs, 2);
 
 	counter_u64_add(V_pf_status.fcounters[FCNT_STATE_INSERT], 1);
-	if (pfsync_insert_state_ptr != NULL)
-		pfsync_insert_state_ptr(s);
+	if (V_pfsync_insert_state_ptr != NULL)
+		V_pfsync_insert_state_ptr(s);
 
 	/* Returns locked. */
 	return (0);
@@ -1557,9 +1557,11 @@ pf_state_expires(const struct pf_state *state)
 		states = V_pf_status.states;
 	}
 	if (end && states > start && start < end) {
-		if (states < end)
-			return (state->expire + timeout * (end - states) /
-			    (end - start));
+		if (states < end) {
+			timeout = (u_int64_t)timeout * (end - states) /
+			    (end - start);
+			return (state->expire + timeout);
+		}
 		else
 			return (time_uptime);
 	}
@@ -1662,8 +1664,8 @@ pf_unlink_state(struct pf_state *s, u_int flags)
 	LIST_REMOVE(s, entry);
 	pf_src_tree_remove_state(s);
 
-	if (pfsync_delete_state_ptr != NULL)
-		pfsync_delete_state_ptr(s);
+	if (V_pfsync_delete_state_ptr != NULL)
+		V_pfsync_delete_state_ptr(s);
 
 	STATE_DEC_COUNTERS(s);
 
@@ -1707,24 +1709,28 @@ pf_purge_expired_states(u_int i, int maxcheck)
 	while (maxcheck > 0) {
 
 		ih = &V_pf_idhash[i];
+
+		/* only take the lock if we expect to do work */
+		if (!LIST_EMPTY(&ih->states)) {
 relock:
-		PF_HASHROW_LOCK(ih);
-		LIST_FOREACH(s, &ih->states, entry) {
-			if (pf_state_expires(s) <= time_uptime) {
-				V_pf_status.states -=
-				    pf_unlink_state(s, PF_ENTER_LOCKED);
-				goto relock;
+			PF_HASHROW_LOCK(ih);
+			LIST_FOREACH(s, &ih->states, entry) {
+				if (pf_state_expires(s) <= time_uptime) {
+					V_pf_status.states -=
+					    pf_unlink_state(s, PF_ENTER_LOCKED);
+					goto relock;
+				}
+				s->rule.ptr->rule_flag |= PFRULE_REFS;
+				if (s->nat_rule.ptr != NULL)
+					s->nat_rule.ptr->rule_flag |= PFRULE_REFS;
+				if (s->anchor.ptr != NULL)
+					s->anchor.ptr->rule_flag |= PFRULE_REFS;
+				s->kif->pfik_flags |= PFI_IFLAG_REFS;
+				if (s->rt_kif)
+					s->rt_kif->pfik_flags |= PFI_IFLAG_REFS;
 			}
-			s->rule.ptr->rule_flag |= PFRULE_REFS;
-			if (s->nat_rule.ptr != NULL)
-				s->nat_rule.ptr->rule_flag |= PFRULE_REFS;
-			if (s->anchor.ptr != NULL)
-				s->anchor.ptr->rule_flag |= PFRULE_REFS;
-			s->kif->pfik_flags |= PFI_IFLAG_REFS;
-			if (s->rt_kif)
-				s->rt_kif->pfik_flags |= PFI_IFLAG_REFS;
+			PF_HASHROW_UNLOCK(ih);
 		}
-		PF_HASHROW_UNLOCK(ih);
 
 		/* Return when we hit end of hash. */
 		if (++i > pf_hashmask) {
@@ -3413,7 +3419,7 @@ pf_test_rule(struct pf_rule **rm, struct pf_state **sm, int direction,
 
 				if (PF_ANEQ(daddr,
 				    &nk->addr[pd->didx], AF_INET6))
-					PF_ACPY(saddr, &nk->addr[pd->didx], af);
+					PF_ACPY(daddr, &nk->addr[pd->didx], af);
 				break;
 #endif /* INET */
 			}
@@ -3566,7 +3572,7 @@ pf_test_rule(struct pf_rule **rm, struct pf_state **sm, int direction,
 
 	if (*sm != NULL && !((*sm)->state_flags & PFSTATE_NOSYNC) &&
 	    direction == PF_OUT &&
-	    pfsync_defer_ptr != NULL && pfsync_defer_ptr(*sm, m))
+	    V_pfsync_defer_ptr != NULL && V_pfsync_defer_ptr(*sm, m))
 		/*
 		 * We want the state created, but we dont
 		 * want to send this in case a partner
@@ -4385,7 +4391,7 @@ pf_test_state_tcp(struct pf_state **state, int direction, struct pfi_kif *kif,
 			    TH_SYN|TH_ACK, 0, (*state)->src.mss, 0, 1, 0, NULL);
 			REASON_SET(reason, PFRES_SYNPROXY);
 			return (PF_SYNPROXY_DROP);
-		} else if (!(th->th_flags & TH_ACK) ||
+		} else if ((th->th_flags & (TH_ACK|TH_RST|TH_FIN)) != TH_ACK ||
 		    (ntohl(th->th_ack) != (*state)->src.seqhi + 1) ||
 		    (ntohl(th->th_seq) != (*state)->src.seqlo + 1)) {
 			REASON_SET(reason, PFRES_SYNPROXY);
@@ -5511,6 +5517,8 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 		ifp = nh4.nh_ifp;
 		dst.sin_addr = nh4.nh_addr;
 	} else {
+		bzero(&naddr, sizeof(naddr));
+
 		if (TAILQ_EMPTY(&r->rpool.list)) {
 			DPFPRINTF(PF_DEBUG_URGENT,
 			    ("%s: TAILQ_EMPTY(&r->rpool.list)\n", __func__));
@@ -5680,6 +5688,8 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 		*m = NULL;
 		return;
 	}
+
+	bzero(&naddr, sizeof(naddr));
 
 	if (TAILQ_EMPTY(&r->rpool.list)) {
 		DPFPRINTF(PF_DEBUG_URGENT,
@@ -6008,8 +6018,8 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 		action = pf_test_state_tcp(&s, dir, kif, m, off, h, &pd,
 		    &reason);
 		if (action == PF_PASS) {
-			if (pfsync_update_state_ptr != NULL)
-				pfsync_update_state_ptr(s);
+			if (V_pfsync_update_state_ptr != NULL)
+				V_pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
 			a = s->anchor.ptr;
 			log = s->log;
@@ -6037,8 +6047,8 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 		}
 		action = pf_test_state_udp(&s, dir, kif, m, off, h, &pd);
 		if (action == PF_PASS) {
-			if (pfsync_update_state_ptr != NULL)
-				pfsync_update_state_ptr(s);
+			if (V_pfsync_update_state_ptr != NULL)
+				V_pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
 			a = s->anchor.ptr;
 			log = s->log;
@@ -6060,8 +6070,8 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 		action = pf_test_state_icmp(&s, dir, kif, m, off, h, &pd,
 		    &reason);
 		if (action == PF_PASS) {
-			if (pfsync_update_state_ptr != NULL)
-				pfsync_update_state_ptr(s);
+			if (V_pfsync_update_state_ptr != NULL)
+				V_pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
 			a = s->anchor.ptr;
 			log = s->log;
@@ -6083,8 +6093,8 @@ pf_test(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb *
 	default:
 		action = pf_test_state_other(&s, dir, kif, m, &pd);
 		if (action == PF_PASS) {
-			if (pfsync_update_state_ptr != NULL)
-				pfsync_update_state_ptr(s);
+			if (V_pfsync_update_state_ptr != NULL)
+				V_pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
 			a = s->anchor.ptr;
 			log = s->log;
@@ -6447,8 +6457,8 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 		action = pf_test_state_tcp(&s, dir, kif, m, off, h, &pd,
 		    &reason);
 		if (action == PF_PASS) {
-			if (pfsync_update_state_ptr != NULL)
-				pfsync_update_state_ptr(s);
+			if (V_pfsync_update_state_ptr != NULL)
+				V_pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
 			a = s->anchor.ptr;
 			log = s->log;
@@ -6476,8 +6486,8 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 		}
 		action = pf_test_state_udp(&s, dir, kif, m, off, h, &pd);
 		if (action == PF_PASS) {
-			if (pfsync_update_state_ptr != NULL)
-				pfsync_update_state_ptr(s);
+			if (V_pfsync_update_state_ptr != NULL)
+				V_pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
 			a = s->anchor.ptr;
 			log = s->log;
@@ -6506,8 +6516,8 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 		action = pf_test_state_icmp(&s, dir, kif,
 		    m, off, h, &pd, &reason);
 		if (action == PF_PASS) {
-			if (pfsync_update_state_ptr != NULL)
-				pfsync_update_state_ptr(s);
+			if (V_pfsync_update_state_ptr != NULL)
+				V_pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
 			a = s->anchor.ptr;
 			log = s->log;
@@ -6520,8 +6530,8 @@ pf_test6(int dir, int pflags, struct ifnet *ifp, struct mbuf **m0, struct inpcb 
 	default:
 		action = pf_test_state_other(&s, dir, kif, m, &pd);
 		if (action == PF_PASS) {
-			if (pfsync_update_state_ptr != NULL)
-				pfsync_update_state_ptr(s);
+			if (V_pfsync_update_state_ptr != NULL)
+				V_pfsync_update_state_ptr(s);
 			r = s->rule.ptr;
 			a = s->anchor.ptr;
 			log = s->log;
