@@ -541,6 +541,9 @@ struct ptrace_args {
  *   copyin(uap->addr, &r.reg32, sizeof r.reg32);
  * .. except this is done at runtime.
  */
+#define	BZERO(a, s)		wrap32 ? \
+	bzero(a ## 32, s ## 32) : \
+	bzero(a, s)
 #define	COPYIN(u, k, s)		wrap32 ? \
 	copyin(u, k ## 32, s ## 32) : \
 	copyin(u, k, s)
@@ -548,6 +551,7 @@ struct ptrace_args {
 	copyout(k ## 32, u, s ## 32) : \
 	copyout(k, u, s)
 #else
+#define	BZERO(a, s)		bzero(a, s)
 #define	COPYIN(u, k, s)		copyin(u, k, s)
 #define	COPYOUT(k, u, s)	copyout(k, u, s)
 #endif
@@ -573,7 +577,7 @@ sys_ptrace(struct thread *td, struct ptrace_args *uap)
 		struct ptrace_lwpinfo32 pl32;
 		struct ptrace_vm_entry32 pve32;
 #endif
-		char args[nitems(td->td_sa.args) * sizeof(register_t)];
+		char args[sizeof(td->td_sa.args)];
 		int ptevents;
 	} r;
 	void *addr;
@@ -590,11 +594,17 @@ sys_ptrace(struct thread *td, struct ptrace_args *uap)
 	addr = &r;
 	switch (uap->req) {
 	case PT_GET_EVENT_MASK:
-	case PT_GETREGS:
-	case PT_GETFPREGS:
-	case PT_GETDBREGS:
 	case PT_LWPINFO:
 	case PT_GET_SC_ARGS:
+		break;
+	case PT_GETREGS:
+		BZERO(&r.reg, sizeof r.reg);
+		break;
+	case PT_GETFPREGS:
+		BZERO(&r.fpreg, sizeof r.fpreg);
+		break;
+	case PT_GETDBREGS:
+		BZERO(&r.dbreg, sizeof r.dbreg);
 		break;
 	case PT_SETREGS:
 		error = COPYIN(uap->addr, &r.reg, sizeof r.reg);
@@ -662,6 +672,7 @@ sys_ptrace(struct thread *td, struct ptrace_args *uap)
 }
 #undef COPYIN
 #undef COPYOUT
+#undef BZERO
 
 #ifdef COMPAT_FREEBSD32
 /*
@@ -870,17 +881,11 @@ kern_ptrace(struct thread *td, int req, pid_t pid, void *addr, int data)
 		}
 
 		/* not currently stopped */
-		if ((p->p_flag & (P_STOPPED_SIG | P_STOPPED_TRACE)) == 0 ||
+		if ((p->p_flag & P_STOPPED_TRACE) == 0 ||
 		    p->p_suspcount != p->p_numthreads  ||
 		    (p->p_flag & P_WAITED) == 0) {
 			error = EBUSY;
 			goto fail;
-		}
-
-		if ((p->p_flag & P_STOPPED_TRACE) == 0) {
-			static int count = 0;
-			if (count++ == 0)
-				printf("P_STOPPED_TRACE not set.\n");
 		}
 
 		/* OK */
@@ -927,10 +932,27 @@ kern_ptrace(struct thread *td, int req, pid_t pid, void *addr, int data)
 		if (p->p_pptr != td->td_proc) {
 			proc_reparent(p, td->td_proc);
 		}
-		data = SIGSTOP;
 		CTR2(KTR_PTRACE, "PT_ATTACH: pid %d, oppid %d", p->p_pid,
 		    p->p_oppid);
-		goto sendsig;	/* in PT_CONTINUE below */
+
+		sx_xunlock(&proctree_lock);
+		proctree_locked = 0;
+		MPASS(p->p_xthread == NULL);
+		MPASS((p->p_flag & P_STOPPED_TRACE) == 0);
+
+		/*
+		 * If already stopped due to a stop signal, clear the
+		 * existing stop before triggering a traced SIGSTOP.
+		 */
+		if ((p->p_flag & P_STOPPED_SIG) != 0) {
+			PROC_SLOCK(p);
+			p->p_flag &= ~(P_STOPPED_SIG | P_WAITED);
+			thread_unsuspend(p);
+			PROC_SUNLOCK(p);
+		}
+
+		kern_psignal(p, SIGSTOP);
+		break;
 
 	case PT_CLEARSTEP:
 		CTR2(KTR_PTRACE, "PT_CLEARSTEP: tid %d (pid %d)", td2->td_tid,
@@ -1118,8 +1140,10 @@ kern_ptrace(struct thread *td, int req, pid_t pid, void *addr, int data)
 					sigqueue_delete(&td3->td_sigqueue,
 					    SIGSTOP);
 				}
-				td3->td_dbgflags &= ~(TDB_XSIG | TDB_FSTP);
+				td3->td_dbgflags &= ~(TDB_XSIG | TDB_FSTP |
+				    TDB_SUSPEND);
 			}
+
 			if ((p->p_flag2 & P2_PTRACE_FSTP) != 0) {
 				sigqueue_delete(&p->p_sigqueue, SIGSTOP);
 				p->p_flag2 &= ~P2_PTRACE_FSTP;
@@ -1130,54 +1154,45 @@ kern_ptrace(struct thread *td, int req, pid_t pid, void *addr, int data)
 			break;
 		}
 
+		sx_xunlock(&proctree_lock);
+		proctree_locked = 0;
+
 	sendsig:
-		/*
+		MPASS(proctree_locked == 0);
+		
+		/* 
 		 * Clear the pending event for the thread that just
 		 * reported its event (p_xthread).  This may not be
 		 * the thread passed to PT_CONTINUE, PT_STEP, etc. if
 		 * the debugger is resuming a different thread.
+		 *
+		 * Deliver any pending signal via the reporting thread.
 		 */
-		td2 = p->p_xthread;
-		if (proctree_locked) {
-			sx_xunlock(&proctree_lock);
-			proctree_locked = 0;
-		}
-		p->p_xsig = data;
+		MPASS(p->p_xthread != NULL);
+		p->p_xthread->td_dbgflags &= ~TDB_XSIG;
+		p->p_xthread->td_xsig = data;
 		p->p_xthread = NULL;
-		if ((p->p_flag & (P_STOPPED_SIG | P_STOPPED_TRACE)) != 0) {
-			/* deliver or queue signal */
-			td2->td_dbgflags &= ~TDB_XSIG;
-			td2->td_xsig = data;
+		p->p_xsig = data;
 
-			/*
-			 * P_WKILLED is insurance that a PT_KILL/SIGKILL always
-			 * works immediately, even if another thread is
-			 * unsuspended first and attempts to handle a different
-			 * signal or if the POSIX.1b style signal queue cannot
-			 * accommodate any new signals.
-			 */
-			if (data == SIGKILL)
-				proc_wkilled(p);
+		/*
+		 * P_WKILLED is insurance that a PT_KILL/SIGKILL
+		 * always works immediately, even if another thread is
+		 * unsuspended first and attempts to handle a
+		 * different signal or if the POSIX.1b style signal
+		 * queue cannot accommodate any new signals.
+		 */
+		if (data == SIGKILL)
+			proc_wkilled(p);
 
-			if (req == PT_DETACH) {
-				FOREACH_THREAD_IN_PROC(p, td3)
-					td3->td_dbgflags &= ~TDB_SUSPEND;
-			}
-			/*
-			 * unsuspend all threads, to not let a thread run,
-			 * you should use PT_SUSPEND to suspend it before
-			 * continuing process.
-			 */
-			PROC_SLOCK(p);
-			p->p_flag &= ~(P_STOPPED_TRACE|P_STOPPED_SIG|P_WAITED);
-			thread_unsuspend(p);
-			PROC_SUNLOCK(p);
-			if (req == PT_ATTACH)
-				kern_psignal(p, data);
-		} else {
-			if (data)
-				kern_psignal(p, data);
-		}
+		/*
+		 * Unsuspend all threads.  To leave a thread
+		 * suspended, use PT_SUSPEND to suspend it before
+		 * continuing the process.
+		 */
+		PROC_SLOCK(p);
+		p->p_flag &= ~(P_STOPPED_TRACE | P_STOPPED_SIG | P_WAITED);
+		thread_unsuspend(p);
+		PROC_SUNLOCK(p);
 		break;
 
 	case PT_WRITE_I:
