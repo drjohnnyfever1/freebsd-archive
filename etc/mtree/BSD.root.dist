@@ -36,6 +36,8 @@
         ..
         bluetooth
         ..
+	conf.d
+	..
         cron.d
         ..
         defaults
@@ -45,7 +47,11 @@
         dma
         ..
         gss
+	..
+	init.d
         ..
+	local.d
+	..
         mail
         ..
         mtree
@@ -74,12 +80,26 @@
         ..
         rc.d
         ..
+	runlevels
+	    boot
+	    ..
+	    default
+	    ..
+	    nonetwork
+	    ..
+	    shutdown
+	    ..
+	    sysinit
+	    ..
+	..
         security
         ..
         ssh
         ..
         ssl
         ..
+	sysctl.d
+	..
         syslog.d
         ..
         zfs
@@ -94,8 +114,22 @@
         ..
     ..
     libexec
+	dhcpcd-hooks
+        ..
         resolvconf
         ..
+	rc
+	    bin
+	    ..
+	    init.d
+	    ..
+	    sbin
+	    ..
+	    sh
+	    ..
+	    tmp
+	    ..
+	..
     ..
     media
     ..
